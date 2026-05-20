@@ -518,12 +518,12 @@ import {
 
 // ── Firebase 初期化 ──
 const firebaseConfig = {
-  apiKey: "AIzaSyCOXwDJKgpD3ciCE4fctiMJ59MFd2tUIRI",
-  authDomain: "reizoko-12322.firebaseapp.com",
-  projectId: "reizoko-12322",
-  storageBucket: "reizoko-12322.firebasestorage.app",
-  messagingSenderId: "422304148803",
-  appId: "1:422304148803:web:35f5bdf20c9a3c014a13f6"
+  apiKey: "AIzaSyDER0aQxSJV5SyC4wAFzlAwWdxz95RfB1k",
+  authDomain: "reizoko2-b1cd6.firebaseapp.com",
+  projectId: "reizoko2-b1cd6",
+  storageBucket: "reizoko2-b1cd6.firebasestorage.app",
+  messagingSenderId: "959679109827",
+  appId: "1:959679109827:web:9282218ad49a6abf266076"
 };
 const app = initializeApp(firebaseConfig);
 const db  = getFirestore(app);
@@ -598,7 +598,7 @@ window.sw = function(name){
 // ══════════════════════════════════════════
 function renderChips(){
   document.getElementById('quickChips').innerHTML = COMMON.map(c=>
-    `<button class="chip" onclick="fillForm(${JSON.stringify(c.n)},${JSON.stringify(c.c)},${c.d})">${esc(c.n)}</button>`
+    `<button class="chip" onclick="fillForm(${esc(JSON.stringify(c.n))},${esc(JSON.stringify(c.c))},${c.d})">${esc(c.n)}</button>`
   ).join('');
 }
 window.fillForm = function(name,cat,days){
@@ -613,7 +613,7 @@ window.onNameInput = function(val){
   if(!val.trim()){list.classList.remove('open');return;}
   const hits=COMMON.filter(c=>c.n.includes(val));
   if(!hits.length){list.classList.remove('open');return;}
-  list.innerHTML=hits.map(c=>`<div class="sug-item" onmousedown="fillForm(${JSON.stringify(c.n)},${JSON.stringify(c.c)},${c.d})">${esc(c.n)}</div>`).join('');
+  list.innerHTML=hits.map(c=>`<div class="sug-item" onmousedown="fillForm(${esc(JSON.stringify(c.n))},${esc(JSON.stringify(c.c))},${c.d})">${esc(c.n)}</div>`).join('');
   list.classList.add('open');
 };
 window.closeSug = function(){ document.getElementById('sugList').classList.remove('open'); };
@@ -667,8 +667,8 @@ function renderInventory(){
   const el=document.getElementById('inventoryList');
   let items=[...inventory].sort((a,b)=>{
     const da=a.expiry?new Date(a.expiry):new Date('9999');
-    const db=b.expiry?new Date(b.expiry):new Date('9999');
-    return da-db;
+    const db2=b.expiry?new Date(b.expiry):new Date('9999');
+    return da-db2;
   });
   if(invFilter==='danger') items=items.filter(i=>{const d=daysUntil(i.expiry);return d!==null&&d<=3;});
   if(invFilter==='veggie') items=items.filter(i=>i.category==='野菜');
@@ -872,7 +872,7 @@ window.recognizePhoto = async function(input){
             <div class="item-name">${esc(it.name)}</div>
             <div class="item-meta">${esc(it.category||'')} · ${esc(it.quantity||'')}</div>
           </div>
-          <button class="btn btn-p btn-xs" onclick="quickAdd(${JSON.stringify(it.name)},${JSON.stringify(it.category||'その他')},${JSON.stringify(it.quantity||'')},${JSON.stringify(expStr)},this)">追加</button>
+          <button class="btn btn-p btn-xs" onclick="quickAdd(${esc(JSON.stringify(it.name))},${esc(JSON.stringify(it.category||'その他'))},${esc(JSON.stringify(it.quantity||''))},${esc(JSON.stringify(expStr))},this)">追加</button>
         </div>`;
       }).join('')}
     </div>`;
@@ -1174,7 +1174,7 @@ async function lookupBarcodeProduct(barcode) {
         <div style="font-size:12px;color:var(--ink2);margin-bottom:12px">${esc(cat)}${p.quantity ? ' · ' + esc(p.quantity) : ''}</div>
         <div style="display:flex;gap:8px">
           <button class="btn btn-p btn-sm" style="flex:1"
-            onclick="fillFormFromBarcode(${JSON.stringify(name)},${JSON.stringify(cat)},${JSON.stringify(p.quantity||'')})">
+            onclick="fillFormFromBarcode(${esc(JSON.stringify(name))},${esc(JSON.stringify(cat))},${esc(JSON.stringify(p.quantity||''))})">
             フォームに入力
           </button>
           <button class="btn btn-o btn-sm" onclick="openBarcodeScanner()">再スキャン</button>
@@ -1187,7 +1187,7 @@ async function lookupBarcodeProduct(barcode) {
         </div>
         <div style="display:flex;gap:8px">
           <button class="btn btn-o btn-sm" style="flex:1"
-            onclick="fillFormFromBarcode(${JSON.stringify(barcode)},'その他','')">
+            onclick="fillFormFromBarcode(${esc(JSON.stringify(barcode))},'その他','')">
             バーコードで入力
           </button>
           <button class="btn btn-o btn-sm" onclick="openBarcodeScanner()">再スキャン</button>
