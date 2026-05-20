@@ -332,6 +332,39 @@ body {
 #barcodeReader video { width: 100% !important; max-height: 260px; object-fit: cover; }
 #barcodeReader img { display: none !important; }
 #barcodeReader button { display: none !important; }
+
+/* ── SETTINGS ── */
+.settings-overlay {
+  display: none; position: fixed; inset: 0;
+  background: rgba(0,0,0,.6); z-index: 300;
+  align-items: center; justify-content: center; padding: 20px;
+}
+.settings-overlay.open { display: flex; }
+.settings-box {
+  background: #fff; border-radius: var(--r);
+  width: 100%; max-width: 400px;
+  box-shadow: var(--shadow-lg);
+}
+.settings-hdr {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 18px; border-bottom: 1px solid var(--line);
+}
+.settings-title { font-weight: 700; font-size: 16px; }
+.settings-body { padding: 18px; }
+.settings-note {
+  font-size: 11px; color: var(--ink2); margin-top: 6px; line-height: 1.5;
+}
+.api-badge {
+  display: inline-block; font-size: 10px; font-weight: 700;
+  padding: 2px 7px; border-radius: 10px; margin-left: 6px;
+  background: var(--accent-light); color: var(--accent);
+}
+.gear-btn {
+  background: rgba(255,255,255,.2); border: none; color: #fff;
+  font-size: 18px; cursor: pointer; padding: 6px; border-radius: 8px;
+  line-height: 1; transition: background .15s;
+}
+.gear-btn:hover { background: rgba(255,255,255,.35); }
 </style>
 </head>
 <body>
@@ -344,6 +377,7 @@ body {
       <div class="hdr-sub" id="syncStatus">接続中…</div>
     </div>
     <div class="hdr-right">
+      <button class="gear-btn" onclick="openSettings()" title="AI設定">⚙️</button>
       <div class="sync-dot off" id="syncDot"></div>
     </div>
   </div>
@@ -503,6 +537,31 @@ body {
   </div>
 </div>
 
+<!-- SETTINGS MODAL -->
+<div class="settings-overlay" id="settingsOverlay">
+  <div class="settings-box">
+    <div class="settings-hdr">
+      <span class="settings-title">⚙️ AI設定</span>
+      <button class="x-btn" onclick="closeSettings()">×</button>
+    </div>
+    <div class="settings-body">
+      <div class="fg">
+        <label>AIプロバイダー</label>
+        <select id="aiProvider">
+          <option value="claude">Claude (Anthropic)</option>
+          <option value="openai">OpenAI (GPT-4o)</option>
+        </select>
+      </div>
+      <div class="fg">
+        <label>APIキー</label>
+        <input type="password" id="aiApiKey" placeholder="APIキーを入力…" autocomplete="off">
+        <p class="settings-note" id="aiKeyNote"></p>
+      </div>
+      <button class="btn btn-p btn-full" onclick="saveSettings()">保存する</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <!-- Barcode Scanner Library -->
@@ -539,6 +598,83 @@ let recipes    = [];
 let shopItems  = [];
 let invFilter  = 'all';
 let recFilter  = 'all';
+
+// ══════════════════════════════════════════
+// AI SETTINGS
+// ══════════════════════════════════════════
+function getAISettings(){
+  return {
+    provider: localStorage.getItem('aiProvider') || 'claude',
+    apiKey:   localStorage.getItem('aiApiKey')   || ''
+  };
+}
+window.openSettings = function(){
+  const {provider, apiKey} = getAISettings();
+  document.getElementById('aiProvider').value = provider;
+  document.getElementById('aiApiKey').value   = apiKey;
+  const note = document.getElementById('aiKeyNote');
+  note.textContent = provider === 'openai'
+    ? 'platform.openai.com でAPIキーを取得できます'
+    : 'console.anthropic.com でAPIキーを取得できます';
+  document.getElementById('settingsOverlay').classList.add('open');
+};
+window.closeSettings = function(){
+  document.getElementById('settingsOverlay').classList.remove('open');
+};
+window.saveSettings = function(){
+  const provider = document.getElementById('aiProvider').value;
+  const apiKey   = document.getElementById('aiApiKey').value.trim();
+  localStorage.setItem('aiProvider', provider);
+  if(apiKey) localStorage.setItem('aiApiKey', apiKey);
+  closeSettings();
+  toast('✅ AI設定を保存しました');
+};
+document.getElementById('aiProvider').addEventListener('change', function(){
+  const note = document.getElementById('aiKeyNote');
+  note.textContent = this.value === 'openai'
+    ? 'platform.openai.com でAPIキーを取得できます'
+    : 'console.anthropic.com でAPIキーを取得できます';
+});
+
+// ── AI呼び出し共通関数 ──
+async function callAI(messages, maxTokens=1500){
+  const {provider, apiKey} = getAISettings();
+  if(!apiKey) throw new Error('APIキー未設定。右上の⚙️から設定してください');
+  if(provider === 'openai'){
+    const resp = await fetch('https://api.openai.com/v1/chat/completions',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':`Bearer ${apiKey}`},
+      body: JSON.stringify({model:'gpt-4o', max_tokens:maxTokens, messages})
+    });
+    if(!resp.ok){const e=await resp.json().catch(()=>({}));throw new Error(e.error?.message||`API ${resp.status}`);}
+    const data = await resp.json();
+    return data.choices[0].message.content;
+  } else {
+    const resp = await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',
+      headers:{
+        'Content-Type':'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version':'2023-06-01',
+        'anthropic-dangerous-allow-any-cors-origin':'true'
+      },
+      body: JSON.stringify({model:'claude-sonnet-4-20250514', max_tokens:maxTokens, messages})
+    });
+    if(!resp.ok){const e=await resp.json().catch(()=>({}));throw new Error(e.error?.message||`API ${resp.status}`);}
+    const data = await resp.json();
+    if(data.error) throw new Error(data.error.message);
+    return (data.content||[]).map(c=>c.text||'').join('');
+  }
+}
+function buildMessages(text, img=null){
+  const {provider} = getAISettings();
+  if(!img) return [{role:'user', content:text}];
+  const {b64, mediaType} = img;
+  const imgPart = provider==='openai'
+    ? {type:'image_url', image_url:{url:`data:${mediaType};base64,${b64}`}}
+    : {type:'image', source:{type:'base64', media_type:mediaType, data:b64}};
+  return [{role:'user', content:[imgPart,{type:'text',text}]}];
+}
 
 // ── よく使う食材 ──
 const COMMON = [
@@ -839,25 +975,8 @@ window.recognizePhoto = async function(input){
       r.readAsDataURL(file);
     });
     const mediaType=file.type?.startsWith('image/')?file.type:'image/jpeg';
-    const resp=await fetch('https://api.anthropic.com/v1/messages',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        model:'claude-sonnet-4-20250514',
-        max_tokens:1000,
-        messages:[{
-          role:'user',
-          content:[
-            {type:'image',source:{type:'base64',media_type:mediaType,data:b64}},
-            {type:'text',text:`この写真に写っている食材を識別してください。\nJSON配列のみを返してください（説明不要）:\n[{"name":"食材名","category":"野菜|肉・魚|乳製品|飲み物|調味料|その他","quantity":"推定量","days":推定賞味期限日数}]`}
-          ]
-        }]
-      })
-    });
-    if(!resp.ok)throw new Error(`API ${resp.status}`);
-    const data=await resp.json();
-    if(data.error)throw new Error(data.error.message);
-    const text=(data.content||[]).map(c=>c.text||'').join('');
+    const prompt=`この写真に写っている食材を識別してください。\nJSON配列のみを返してください（説明不要）:\n[{"name":"食材名","category":"野菜|肉・魚|乳製品|飲み物|調味料|その他","quantity":"推定量","days":推定賞味期限日数}]`;
+    const text=await callAI(buildMessages(prompt,{b64,mediaType}),1000);
     const m=text.replace(/```json|```/g,'').trim().match(/\[[\s\S]*\]/);
     const items=m?JSON.parse(m[0]):null;
     if(!Array.isArray(items)||!items.length)throw new Error('食材を認識できませんでした');
@@ -919,19 +1038,7 @@ window.generateRecipes = async function(){
     `{"recipes":[{"title":"","description":"","time":"20分","difficulty":"簡単","tags":"和食,簡単","ingredients":"材料1 200g\\n材料2 1個","steps":"1. 手順\\n2. 手順","tips":"コツ"}]}`;
 
   try{
-    const resp=await fetch('https://api.anthropic.com/v1/messages',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        model:'claude-sonnet-4-20250514',
-        max_tokens:2000,
-        messages:[{role:'user',content:prompt}]
-      })
-    });
-    if(!resp.ok)throw new Error(`API ${resp.status}`);
-    const data=await resp.json();
-    if(data.error)throw new Error(data.error.message);
-    const text=(data.content||[]).map(c=>c.text||'').join('');
+    const text=await callAI(buildMessages(prompt),2000);
     const clean=text.replace(/```json|```/g,'').trim();
     const m=clean.match(/\{[\s\S]*\}/);
     if(!m)throw new Error('レシピの解析に失敗しました');
@@ -1076,22 +1183,10 @@ async function addMissingDirect(recipeTitle,ingredients){
   toast('不足食材を確認中…');
   try{
     const invNames=inventory.map(i=>i.name).join('、')||'なし';
-    const resp=await fetch('https://api.anthropic.com/v1/messages',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        model:'claude-sonnet-4-20250514',
-        max_tokens:500,
-        messages:[{role:'user',content:
-          `レシピ「${recipeTitle}」の材料:\n${ingredients}\n\n冷蔵庫にある食材: ${invNames}\n\n`+
-          `冷蔵庫にない材料を抽出してください。醤油・塩・砂糖・水・油などの基本調味料は除外。\n`+
-          `JSON配列のみ: [{"name":"材料名","quantity":"量"}]\n不足なし: []`
-        }]
-      })
-    });
-    if(!resp.ok)throw new Error(`API ${resp.status}`);
-    const data=await resp.json();
-    const text=(data.content||[]).map(c=>c.text||'').join('');
+    const missingPrompt=`レシピ「${recipeTitle}」の材料:\n${ingredients}\n\n冷蔵庫にある食材: ${invNames}\n\n`+
+      `冷蔵庫にない材料を抽出してください。醤油・塩・砂糖・水・油などの基本調味料は除外。\n`+
+      `JSON配列のみ: [{"name":"材料名","quantity":"量"}]\n不足なし: []`;
+    const text=await callAI(buildMessages(missingPrompt),500);
     const m=text.replace(/```json|```/g,'').trim().match(/\[[\s\S]*\]/);
     const missing=m?JSON.parse(m[0]):[];
     if(!Array.isArray(missing)||!missing.length){toast('不足食材はありません ✅');return;}
@@ -1215,6 +1310,7 @@ window.fillFormFromBarcode = async function(name, cat, qty) {
 renderChips();
 startListeners();
 setSyncStatus(false,'接続中…');
+if(!getAISettings().apiKey) setTimeout(()=>toast('⚙️ AI機能を使うには右上の設定からAPIキーを入力してください',4000),1500);
 
 </script>
 </body>
