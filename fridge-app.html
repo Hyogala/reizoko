@@ -435,6 +435,14 @@ body {
     <p>バーコードをスキャンして食材を追加<br><span style="font-size:11px;opacity:.7">JAN / EAN コードに対応</span></p>
   </div>
 
+  <!-- レシートスキャン -->
+  <div class="photo-zone" onclick="document.getElementById('receiptInput').click()" style="margin-top:-4px">
+    <div class="pz-icon">🧾</div>
+    <p>レシートを撮影して一括追加<br><span style="font-size:11px;opacity:.7">AIが食品をまとめて認識</span></p>
+  </div>
+  <input type="file" id="receiptInput" accept="image/*" capture="environment" onchange="recognizeReceipt(this)">
+  <div id="receiptResult"></div>
+
   <!-- クイックチップ -->
   <div class="fg" style="margin-bottom:6px"><label>よく使う食材</label></div>
   <div class="chips" id="quickChips"></div>
@@ -460,7 +468,23 @@ body {
       </div>
       <div class="fg">
         <label>数量</label>
-        <input type="text" id="inQty" placeholder="例: 300g">
+        <div style="display:flex;gap:6px">
+          <input type="number" id="inQtyNum" min="1" value="" placeholder="数"
+            style="width:70px;padding:11px 10px;border:1.5px solid var(--line);border-radius:var(--r-sm);font-family:inherit;font-size:14px;background:var(--bg);">
+          <select id="inQtyUnit" style="flex:1;padding:11px 10px;border:1.5px solid var(--line);border-radius:var(--r-sm);font-family:inherit;font-size:14px;background:var(--bg);-webkit-appearance:none;">
+            <option value="個">個</option>
+            <option value="本">本</option>
+            <option value="袋">袋</option>
+            <option value="パック">パック</option>
+            <option value="枚">枚</option>
+            <option value="切れ">切れ</option>
+            <option value="束">束</option>
+            <option value="g">g</option>
+            <option value="kg">kg</option>
+            <option value="ml">ml</option>
+            <option value="L">L</option>
+          </select>
+        </div>
       </div>
     </div>
     <div class="fg">
@@ -916,14 +940,14 @@ window.addItem = async function(){
     await addDoc(collection(db,COL_INV),{
       name,
       category: document.getElementById('inCat').value||'その他',
-      quantity: document.getElementById('inQty').value||'',
+      quantity: (document.getElementById('inQtyNum').value||'')+(document.getElementById('inQtyUnit').value||''),
       expiry:   document.getElementById('inExpiry').value||null,
       createdAt: serverTimestamp()
     });
     toast(`✅ ${name} を追加しました`);
     document.getElementById('inName').value='';
     document.getElementById('inCat').value='';
-    document.getElementById('inQty').value='';
+    document.getElementById('inQtyNum').value='';
     document.getElementById('inExpiry').value='';
     sw('inventory');
   }catch(e){
@@ -1299,9 +1323,91 @@ window.fillFormFromBarcode = async function(name, cat, qty) {
   await closeBarcodeScanner();
   document.getElementById('inName').value = name;
   document.getElementById('inCat').value = cat || '';
-  if (qty) document.getElementById('inQty').value = qty;
+  if (qty) setQtyField(qty);
   sw('add');
   toast('✅ 入力しました。賞味期限を確認してください');
+};
+
+// 数量文字列をnum+unitフィールドに分解してセット
+function setQtyField(qty){
+  const m = String(qty).match(/^(\d+\.?\d*)\s*(.*)$/);
+  if(m){
+    document.getElementById('inQtyNum').value = m[1];
+    const unit = m[2].trim();
+    const sel = document.getElementById('inQtyUnit');
+    const opt = [...sel.options].find(o=>o.value===unit);
+    if(opt) sel.value = unit;
+  } else {
+    document.getElementById('inQtyNum').value = qty;
+  }
+}
+
+// ══════════════════════════════════════════
+// RECEIPT SCAN
+// ══════════════════════════════════════════
+window.recognizeReceipt = async function(input){
+  const file = input.files[0];
+  if(!file) return;
+  const resultEl = document.getElementById('receiptResult');
+  resultEl.innerHTML = `<div class="card loading-row"><div class="spin spin-d"></div>レシートから食品を認識中…</div>`;
+  try{
+    const b64 = await new Promise((res,rej)=>{
+      const r = new FileReader();
+      r.onload = ()=>res(r.result.split(',')[1]);
+      r.onerror = ()=>rej(new Error('ファイルの読み込みに失敗しました'));
+      r.readAsDataURL(file);
+    });
+    const mediaType = file.type?.startsWith('image/')?file.type:'image/jpeg';
+    const prompt = `このレシートに写っている食品・食材のみを抽出してください。\n洗剤・雑貨・容器代・ポイントなど食品以外は除外してください。\nJSON配列のみを返してください（説明不要）:\n[{"name":"商品名","category":"野菜|肉・魚|乳製品|飲み物|調味料|その他","quantity":"内容量（例:300g）","days":推定賞味期限日数}]`;
+    const text = await callAI(buildMessages(prompt,{b64,mediaType}),1000);
+    const m = text.replace(/```json|```/g,'').trim().match(/\[[\s\S]*\]/);
+    const items = m?JSON.parse(m[0]):null;
+    if(!Array.isArray(items)||!items.length) throw new Error('食品が認識できませんでした');
+    resultEl.innerHTML = `<div class="card">
+      <div style="font-weight:700;font-size:14px;margin-bottom:12px">🧾 ${items.length}品を認識しました</div>
+      ${items.map(it=>{
+        const exp = new Date(); exp.setDate(exp.getDate()+(Number(it.days)||7));
+        const expStr = exp.toISOString().slice(0,10);
+        return `<div class="item-row">
+          <div class="item-dot" style="background:var(--accent)"></div>
+          <div class="item-body">
+            <div class="item-name">${esc(it.name)}</div>
+            <div class="item-meta">${esc(it.category||'')}${it.quantity?' · '+esc(it.quantity):''}</div>
+          </div>
+          <button class="btn btn-p btn-xs" onclick="quickAdd(${esc(JSON.stringify(it.name))},${esc(JSON.stringify(it.category||'その他'))},${esc(JSON.stringify(it.quantity||''))},${esc(JSON.stringify(expStr))},this)">追加</button>
+        </div>`;
+      }).join('')}
+      <button class="btn btn-p btn-full" style="margin-top:12px" onclick="addAllReceiptItems(this)">すべて追加</button>
+    </div>`;
+    resultEl._items = items;
+  }catch(e){
+    resultEl.innerHTML = `<div class="card" style="color:var(--red);font-size:13px;padding:14px">⚠️ ${esc(e.message)}</div>`;
+    console.error('recognizeReceipt:',e);
+  }
+  input.value='';
+};
+
+window.addAllReceiptItems = async function(btn){
+  const resultEl = document.getElementById('receiptResult');
+  const items = resultEl._items;
+  if(!items?.length) return;
+  btn.disabled=true; btn.innerHTML='<div class="spin"></div> 追加中…';
+  try{
+    await Promise.all(items.map(it=>{
+      const exp=new Date(); exp.setDate(exp.getDate()+(Number(it.days)||7));
+      return addDoc(collection(db,COL_INV),{
+        name:it.name||'', category:it.category||'その他',
+        quantity:it.quantity||'', expiry:exp.toISOString().slice(0,10),
+        createdAt:serverTimestamp()
+      });
+    }));
+    toast(`✅ ${items.length}品を追加しました`);
+    resultEl.innerHTML='';
+    sw('inventory');
+  }catch(e){
+    btn.disabled=false; btn.innerHTML='すべて追加';
+    toast('追加に失敗しました'); console.error(e);
+  }
 };
 
 // ══════════════════════════════════════════
