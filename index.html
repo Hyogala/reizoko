@@ -217,9 +217,29 @@ body{font-family:'Zen Kaku Gothic New',sans-serif;background:var(--bg);color:var
 
 /* ── SETTINGS NOTE ── */
 .settings-note{font-size:11px;color:var(--ink2);margin-top:5px;line-height:1.5;}
+
+/* ── LOGIN ── */
+#loginOverlay{position:fixed;inset:0;z-index:9999;background:var(--bg);display:flex;align-items:center;justify-content:center;}
+#loginOverlay.hidden{display:none;}
+.login-box{width:min(340px,92vw);padding:32px 24px;background:var(--card);border-radius:var(--r);box-shadow:var(--shadow-lg);display:flex;flex-direction:column;gap:14px;}
+.login-title{font-size:22px;font-weight:700;text-align:center;color:var(--accent);}
+.login-sub{font-size:13px;text-align:center;color:var(--ink2);margin-top:-8px;}
+.login-err{font-size:12px;color:var(--red);text-align:center;min-height:16px;}
 </style>
 </head>
 <body>
+
+<!-- LOGIN OVERLAY -->
+<div id="loginOverlay">
+  <div class="login-box">
+    <div class="login-title">🐰 うちの冷蔵庫</div>
+    <div class="login-sub">ログインしてください</div>
+    <input class="inp" type="email" id="loginEmail" placeholder="メールアドレス" autocomplete="email">
+    <input class="inp" type="password" id="loginPassword" placeholder="パスワード" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
+    <button class="btn btn-p btn-full" id="loginBtn" onclick="doLogin()">ログイン</button>
+    <div class="login-err" id="loginError"></div>
+  </div>
+</div>
 
 <!-- HEADER -->
 <div class="hdr">
@@ -424,6 +444,8 @@ body{font-family:'Zen Kaku Gothic New',sans-serif;background:var(--bg);color:var
         <p class="settings-note" id="aiKeyNote"></p>
       </div>
       <button class="btn btn-p btn-full" onclick="saveSettings()">保存する</button>
+      <hr style="border:none;border-top:1px solid var(--line);margin:14px 0;">
+      <button class="btn btn-full" style="border:1.5px solid var(--line);color:var(--ink2);background:transparent;" onclick="doLogout()">ログアウト</button>
     </div>
   </div>
 </div>
@@ -497,6 +519,9 @@ import {
   getFirestore, collection, addDoc, getDocs, deleteDoc,
   doc, updateDoc, onSnapshot, query, orderBy, serverTimestamp
 } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+import {
+  getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged
+} from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
 
 // ── Firebase 初期化 ──
 const firebaseConfig = {
@@ -507,8 +532,9 @@ const firebaseConfig = {
   messagingSenderId: "959679109827",
   appId: "1:959679109827:web:9282218ad49a6abf266076"
 };
-const app = initializeApp(firebaseConfig);
-const db  = getFirestore(app);
+const app  = initializeApp(firebaseConfig);
+const db   = getFirestore(app);
+const auth = getAuth(app);
 
 const COL_INV  = 'inventory';
 const COL_REC  = 'recipes';
@@ -1359,13 +1385,49 @@ window.addAllReceiptItems = async function(btn){
 };
 
 // ══════════════════════════════════════════
+// AUTH
+// ══════════════════════════════════════════
+window.doLogin = async function(){
+  const email    = document.getElementById('loginEmail').value.trim();
+  const password = document.getElementById('loginPassword').value;
+  const errEl    = document.getElementById('loginError');
+  const btn      = document.getElementById('loginBtn');
+  errEl.textContent = '';
+  btn.disabled = true; btn.textContent = '…';
+  try {
+    await signInWithEmailAndPassword(auth, email, password);
+  } catch(e) {
+    errEl.textContent = 'メールアドレスまたはパスワードが違います';
+    btn.disabled = false; btn.textContent = 'ログイン';
+  }
+};
+
+window.doLogout = async function(){
+  await signOut(auth);
+  closeSettings();
+};
+
+onAuthStateChanged(auth, (user) => {
+  if(user){
+    document.getElementById('loginOverlay').classList.add('hidden');
+    startListeners();
+    setSyncStatus(false,'接続中…');
+    if(!getAISettings().apiKey) setTimeout(()=>toast('⚙️ 設定からAPIキーを入力してください',4000),1500);
+  } else {
+    document.getElementById('loginOverlay').classList.remove('hidden');
+    document.getElementById('loginBtn').disabled = false;
+    document.getElementById('loginBtn').textContent = 'ログイン';
+    inventory = []; recipes = []; shopItems = [];
+    renderInventory(); renderRecipes(); renderShop();
+    setSyncStatus(false,'ログアウト');
+  }
+});
+
+// ══════════════════════════════════════════
 // INIT
 // ══════════════════════════════════════════
 initTheme();
 renderChips();
-startListeners();
-setSyncStatus(false,'接続中…');
-if(!getAISettings().apiKey) setTimeout(()=>toast('⚙️ 設定からAPIキーを入力してください',4000),1500);
 
 </script>
 </body>
