@@ -469,9 +469,12 @@ body {
       <div class="fg">
         <label>数量</label>
         <div style="display:flex;gap:6px">
-          <input type="number" id="inQtyNum" min="1" value="" placeholder="数"
-            style="width:70px;padding:11px 10px;border:1.5px solid var(--line);border-radius:var(--r-sm);font-family:inherit;font-size:14px;background:var(--bg);">
-          <select id="inQtyUnit" style="flex:1;padding:11px 10px;border:1.5px solid var(--line);border-radius:var(--r-sm);font-family:inherit;font-size:14px;background:var(--bg);-webkit-appearance:none;">
+          <select id="inQtyNum" style="width:80px;padding:11px 10px;border:1.5px solid var(--line);border-radius:var(--r-sm);font-family:inherit;font-size:14px;background:var(--bg);-webkit-appearance:none;">
+            <option value="">-</option>
+            <option>1</option><option>2</option><option>3</option><option>4</option><option>5</option>
+            <option>6</option><option>7</option><option>8</option><option>9</option><option>10</option>
+          </select>
+          <select id="inQtyUnit" onchange="updateQtyOptions(this, document.getElementById('inQtyNum'))" style="flex:1;padding:11px 10px;border:1.5px solid var(--line);border-radius:var(--r-sm);font-family:inherit;font-size:14px;background:var(--bg);-webkit-appearance:none;">
             <option value="個">個</option>
             <option value="本">本</option>
             <option value="袋">袋</option>
@@ -1328,18 +1331,73 @@ window.fillFormFromBarcode = async function(name, cat, qty) {
   toast('✅ 入力しました。賞味期限を確認してください');
 };
 
-// 数量文字列をnum+unitフィールドに分解してセット
-function setQtyField(qty){
-  const m = String(qty).match(/^(\d+\.?\d*)\s*(.*)$/);
+// ── 数量ユーティリティ ──
+const QTY_OPTS = {
+  count: ['','1','2','3','4','5','6','7','8','9','10'],
+  g:     ['','50','100','150','200','250','300','400','500','750','1000'],
+  kg:    ['','0.5','1','1.5','2','3','5'],
+  ml:    ['','100','150','200','250','300','500','750','1000'],
+  L:     ['','0.5','1','1.5','2','3'],
+};
+const UNITS = ['個','本','袋','パック','枚','切れ','束','g','kg','ml','L'];
+
+function getQtyOpts(unit){
+  if(unit==='g')  return QTY_OPTS.g;
+  if(unit==='kg') return QTY_OPTS.kg;
+  if(unit==='ml') return QTY_OPTS.ml;
+  if(unit==='L')  return QTY_OPTS.L;
+  return QTY_OPTS.count;
+}
+
+window.updateQtyOptions = function(unitSel, numSel){
+  const cur = numSel.value;
+  const opts = getQtyOpts(unitSel.value);
+  numSel.innerHTML = opts.map(v=>`<option value="${v}">${v||'-'}</option>`).join('');
+  if(opts.includes(cur)) numSel.value = cur;
+};
+
+function makeQtySelects(qn, qu, prefix){
+  const opts = getQtyOpts(qu);
+  const numHtml = opts.map(v=>`<option value="${v}"${v===qn?' selected':''}>${v||'-'}</option>`).join('');
+  const unitHtml = UNITS.map(u=>`<option value="${u}"${u===qu?' selected':''}>${u}</option>`).join('');
+  const sel = `style="padding:6px 8px;border:1.5px solid var(--line);border-radius:8px;font-family:inherit;font-size:12px;background:var(--bg);-webkit-appearance:none;"`;
+  return `<select class="${prefix}n" onchange="receiptUnitSync(this)" ${sel}>${numHtml}</select>`+
+         `<select class="${prefix}u" onchange="receiptNumSync(this)" ${sel}>${unitHtml}</select>`;
+}
+
+window.receiptUnitSync = function(numSel){
+  const row = numSel.closest('.r-row');
+  const unitSel = row.querySelector('.rqu');
+  const opts = getQtyOpts(unitSel.value);
+  const cur = numSel.value;
+  numSel.innerHTML = opts.map(v=>`<option value="${v}"${v===cur?' selected':''}>${v||'-'}</option>`).join('');
+};
+window.receiptNumSync = function(unitSel){
+  const row = unitSel.closest('.r-row');
+  const numSel = row.querySelector('.rqn');
+  const opts = getQtyOpts(unitSel.value);
+  const cur = numSel.value;
+  numSel.innerHTML = opts.map(v=>`<option value="${v}"${opts.includes(cur)&&v===cur?' selected':''}>${v||'-'}</option>`).join('');
+};
+
+function parseQty(str){
+  const s = String(str||'').trim();
+  const m = s.match(/^(\d+\.?\d*)\s*([^\d].*)$/);
   if(m){
-    document.getElementById('inQtyNum').value = m[1];
+    const num = m[1];
     const unit = m[2].trim();
-    const sel = document.getElementById('inQtyUnit');
-    const opt = [...sel.options].find(o=>o.value===unit);
-    if(opt) sel.value = unit;
-  } else {
-    document.getElementById('inQtyNum').value = qty;
+    if(UNITS.includes(unit)) return {num, unit};
+    return {num, unit:'個'};
   }
+  return {num:'', unit:'個'};
+}
+
+function setQtyField(qty){
+  const {num, unit} = parseQty(qty);
+  const unitSel = document.getElementById('inQtyUnit');
+  unitSel.value = unit;
+  updateQtyOptions(unitSel, document.getElementById('inQtyNum'));
+  document.getElementById('inQtyNum').value = num;
 }
 
 // ══════════════════════════════════════════
@@ -1358,28 +1416,30 @@ window.recognizeReceipt = async function(input){
       r.readAsDataURL(file);
     });
     const mediaType = file.type?.startsWith('image/')?file.type:'image/jpeg';
-    const prompt = `このレシートに写っている食品・食材のみを抽出してください。\n洗剤・雑貨・容器代・ポイントなど食品以外は除外してください。\nJSON配列のみを返してください（説明不要）:\n[{"name":"商品名","category":"野菜|肉・魚|乳製品|飲み物|調味料|その他","quantity":"内容量（例:300g）","days":推定賞味期限日数}]`;
+    const prompt = `このレシートに写っている食品・食材のみを抽出してください。\n洗剤・雑貨・容器代・ポイントなど食品以外は除外してください。\n数量は「2個」「300g」「1パック」のような形式で記入し、不明な場合は空文字にしてください。\nJSON配列のみを返してください（説明不要）:\n[{"name":"商品名","category":"野菜|肉・魚|乳製品|飲み物|調味料|その他","quantity":"数量（例:2個/300g）","days":推定賞味期限日数}]`;
     const text = await callAI(buildMessages(prompt,{b64,mediaType}),1000);
     const m = text.replace(/```json|```/g,'').trim().match(/\[[\s\S]*\]/);
     const items = m?JSON.parse(m[0]):null;
     if(!Array.isArray(items)||!items.length) throw new Error('食品が認識できませんでした');
     resultEl.innerHTML = `<div class="card">
       <div style="font-weight:700;font-size:14px;margin-bottom:12px">🧾 ${items.length}品を認識しました</div>
-      ${items.map(it=>{
+      ${items.map((it,i)=>{
         const exp = new Date(); exp.setDate(exp.getDate()+(Number(it.days)||7));
         const expStr = exp.toISOString().slice(0,10);
-        return `<div class="item-row">
-          <div class="item-dot" style="background:var(--accent)"></div>
+        const {num:qn, unit:qu} = parseQty(it.quantity);
+        return `<div class="item-row r-row" data-name="${esc(it.name)}" data-cat="${esc(it.category||'その他')}" data-expiry="${expStr}">
           <div class="item-body">
             <div class="item-name">${esc(it.name)}</div>
-            <div class="item-meta">${esc(it.category||'')}${it.quantity?' · '+esc(it.quantity):''}</div>
+            <div class="item-meta">${esc(it.category||'')}</div>
           </div>
-          <button class="btn btn-p btn-xs" onclick="quickAdd(${esc(JSON.stringify(it.name))},${esc(JSON.stringify(it.category||'その他'))},${esc(JSON.stringify(it.quantity||''))},${esc(JSON.stringify(expStr))},this)">追加</button>
+          <div style="display:flex;gap:4px;align-items:center">
+            ${makeQtySelects(qn,qu,'rq')}
+          </div>
+          <button class="btn btn-p btn-xs" style="margin-left:4px" onclick="addReceiptRow(this)">追加</button>
         </div>`;
       }).join('')}
       <button class="btn btn-p btn-full" style="margin-top:12px" onclick="addAllReceiptItems(this)">すべて追加</button>
     </div>`;
-    resultEl._items = items;
   }catch(e){
     resultEl.innerHTML = `<div class="card" style="color:var(--red);font-size:13px;padding:14px">⚠️ ${esc(e.message)}</div>`;
     console.error('recognizeReceipt:',e);
@@ -1387,22 +1447,39 @@ window.recognizeReceipt = async function(input){
   input.value='';
 };
 
+window.addReceiptRow = async function(btn){
+  const row = btn.closest('.r-row');
+  const name    = row.dataset.name;
+  const cat     = row.dataset.cat;
+  const expiry  = row.dataset.expiry;
+  const qtyNum  = row.querySelector('.rqn').value;
+  const qtyUnit = row.querySelector('.rqu').value;
+  const qty = qtyNum ? qtyNum+qtyUnit : '';
+  btn.disabled=true; btn.textContent='…';
+  try{
+    await addDoc(collection(db,COL_INV),{name,category:cat,quantity:qty,expiry:expiry||null,createdAt:serverTimestamp()});
+    btn.textContent='✅'; toast(`✅ ${name} を追加しました`);
+  }catch(e){
+    btn.disabled=false; btn.textContent='追加'; toast('追加に失敗しました'); console.error(e);
+  }
+};
+
 window.addAllReceiptItems = async function(btn){
-  const resultEl = document.getElementById('receiptResult');
-  const items = resultEl._items;
-  if(!items?.length) return;
+  const rows = document.querySelectorAll('#receiptResult .r-row');
+  if(!rows.length) return;
   btn.disabled=true; btn.innerHTML='<div class="spin"></div> 追加中…';
   try{
-    await Promise.all(items.map(it=>{
-      const exp=new Date(); exp.setDate(exp.getDate()+(Number(it.days)||7));
+    await Promise.all([...rows].map(row=>{
+      const qtyNum  = row.querySelector('.rqn').value;
+      const qtyUnit = row.querySelector('.rqu').value;
       return addDoc(collection(db,COL_INV),{
-        name:it.name||'', category:it.category||'その他',
-        quantity:it.quantity||'', expiry:exp.toISOString().slice(0,10),
-        createdAt:serverTimestamp()
+        name:row.dataset.name, category:row.dataset.cat,
+        quantity: qtyNum ? qtyNum+qtyUnit : '',
+        expiry:row.dataset.expiry||null, createdAt:serverTimestamp()
       });
     }));
-    toast(`✅ ${items.length}品を追加しました`);
-    resultEl.innerHTML='';
+    toast(`✅ ${rows.length}品を追加しました`);
+    document.getElementById('receiptResult').innerHTML='';
     sw('inventory');
   }catch(e){
     btn.disabled=false; btn.innerHTML='すべて追加';
